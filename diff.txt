@@ -1,0 +1,483 @@
+diff --git a/app/graph/nodes.py b/app/graph/nodes.py
+index d5e918c..aa29153 100644
+--- a/app/graph/nodes.py
++++ b/app/graph/nodes.py
+@@ -2,11 +2,13 @@ import logging
+ import traceback
+ import numpy as np
+ import asyncio
++import random
+ 
+ from typing import Dict, Any, List
+ from functools import lru_cache
+ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+ from langchain_core.prompts import ChatPromptTemplate
++from langchain_core.messages import SystemMessage, HumanMessage
+ 
+ from app.config import OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
+ from app.graph.utils import (
+@@ -22,6 +24,8 @@ from app.utils.prompts import (
+     TOPIC_TRACKER_SYSTEM_PROMPT,
+     TOPIC_SHIFT_SYSTEM_PROMPT,
+     DEEP_DIVE_SYSTEM_PROMPT,
++    SUMMARIZER_SYSTEM_PROMPT,
++    SILENCE_HANDLER_SYSTEM_PROMPT,
+ )
+ 
+ logger = logging.getLogger(__name__)
+@@ -54,6 +58,8 @@ WEIGHT_TS_DISTANCE = 0.3
+ WEIGHT_FINAL_ALGO = 0.9
+ WEIGHT_FINAL_BASE = 0.1
+ 
++HISTORY_KEEP_LAST = 2  # 要約後も文脈維持のために残す直近ターン数
++
+ 
+ @lru_cache(maxsize=1)
+ def get_embeddings_model() -> OpenAIEmbeddings:
+@@ -68,6 +74,40 @@ def get_embeddings_model() -> OpenAIEmbeddings:
+     )
+ 
+ 
++@lru_cache(maxsize=1)
++def get_silence_chain():
++    llm = ChatOpenAI(
++        model=OPENAI_MODEL_ID,
++        temperature=0.5,
++        api_key=OPENAI_API_KEY,
++        timeout=TIMEOUT_LLM,
++    )
++    structured_llm = llm.with_structured_output(SuggestionList)
++
++    # ★修正: speaker, listener を受け取れるように変更
++    prompt = ChatPromptTemplate.from_messages(
++        [
++            ("system", SILENCE_HANDLER_SYSTEM_PROMPT),
++            (
++                "human",
++                "【共通の興味】\n{common_interests}\n\n【既出トピック】\n{visited}",
++            ),
++        ]
++    )
++    return prompt | structured_llm
++
++
++@lru_cache(maxsize=1)
++def get_summarizer_chain():
++    llm = ChatOpenAI(
++        model=OPENAI_MODEL_ID,
++        temperature=0.3,
++        api_key=OPENAI_API_KEY,
++        timeout=TIMEOUT_LLM,
++    )
++    return llm
++
++
+ @lru_cache(maxsize=1)
+ def get_topic_extractor_chain():
+     """
+@@ -497,16 +537,84 @@ async def silence_handler(state: ConversationState) -> Dict[str, Any]:
+             - final_suggestions: 沈黙打破のための提案リスト.
+     """
+     logger.info("--- Node: SilenceHandler ---")
+-    # TODO: 実装は PR #13
+-    # ダミーの提案を返す
+-    dummy_suggestion: Suggestion = {
+-        "text": "（沈黙）話題を変えましょうか？",
+-        "type": "silence_break",
+-        "score": 1.0,
+-        "speaker": "user_a",
+-        "listener": "user_b",
+-    }
+-    return {"final_suggestions": [dummy_suggestion]}
++
++    profiles = state.get("profiles", {})
++    visited = state.get("visited_topics", [])
++    user_ids = list(profiles.keys())
++
++    if len(user_ids) < 2:
++        return {"final_suggestions": []}
++
++    # 共通興味の抽出 (簡易ロジック: キーワードの共通集合をとる)
++    # 本来はベクトル計算などが精密だが、ここは高速性重視でキーワードマッチさせる
++    all_keywords = []
++    user_keywords = {}
++
++    for uid, prof in profiles.items():
++        kws = set()
++        for c in prof.get("interest_clusters", []):
++            kws.update(c.get("keywords", []))
++        # SNSデータも加味
++        kws.update(prof.get("sns_data", {}).get("likes", []))
++        user_keywords[uid] = kws
++        all_keywords.extend(list(kws))
++
++    # 共通キーワードを探す
++    common_interests = set()
++    uids = list(user_keywords.keys())
++    if len(uids) >= 2:
++        common_interests = user_keywords[uids[0]].intersection(user_keywords[uids[1]])
++
++    # 共通がなければ全員の興味をプールする
++    target_interests = list(common_interests) if common_interests else all_keywords
++
++    interests_str = ", ".join(target_interests[:10])
++    visited_str = ", ".join(visited)
++
++    speaker = random.choice(user_ids)
++    others = [u for u in user_ids if u != speaker]
++    listener = others[0] if others else speaker
++
++    try:
++        chain = get_silence_chain()
++
++        result: SuggestionList = await chain.ainvoke(
++            {
++                "common_interests": interests_str,
++                "visited": visited_str,
++                "speaker": speaker,
++                "listener": listener,
++            },
++            config={"timeout": TIMEOUT_LLM},
++        )
++
++        final_suggestions = []
++        for item in result.suggestions:
++            final_suggestions.append(
++                {
++                    "text": item.text,
++                    "type": "silence_break",
++                    "score": item.score,
++                    "speaker": speaker,  # 明確にこのユーザーの発言とする
++                    "listener": listener,
++                }
++            )
++
++        return {"final_suggestions": final_suggestions}
++
++    except Exception as e:
++        logger.error(f"Error in SilenceHandler: {e}")
++        # フォールバックも「ユーザー視点」に変更
++        fallback = [
++            {
++                "text": "そういえば、最近面白い映画とか観ました？",
++                "type": "silence_break",
++                "score": 0.5,
++                "speaker": speaker,
++                "listener": listener,
++            }
++        ]
++        return {"final_suggestions": fallback}
+ 
+ 
+ async def summarizer(state: ConversationState) -> Dict[str, Any]:
+@@ -523,8 +631,44 @@ async def summarizer(state: ConversationState) -> Dict[str, Any]:
+             - history_window: 空リスト（または圧縮後のリスト）.
+     """
+     logger.info("--- Node: Summarizer ---")
+-    # TODO: 実装は PR #13
+-    return {"summary": "summary_updated", "history_window": []}
++
++    history = state.get("history_window", [])
++    current_summary = state.get("summary", "")
++
++    # 要約対象: 直近N件を除く古い履歴
++    to_summarize = history[:-HISTORY_KEEP_LAST]
++    # 次のサイクルに残す履歴
++    to_keep = history[-HISTORY_KEEP_LAST:]
++
++    if not to_summarize:
++        return {}
++
++    lines = "\n".join([f"{h['speaker']}: {h['text']}" for h in to_summarize])
++
++    llm = get_summarizer_chain()
++
++    try:
++        messages = [
++            SystemMessage(content=SUMMARIZER_SYSTEM_PROMPT),
++            HumanMessage(
++                content=f"【現在の要約】\n{current_summary}\n\n【新しい会話履歴】\n{lines}"
++            ),
++        ]
++
++        response = await llm.ainvoke(messages)
++        new_summary = response.content
++
++        logger.info(
++            f"Summary updated. Length: {len(current_summary)} -> {len(new_summary)}"
++        )
++
++        # State更新: summaryを更新し、history_windowを短縮したものに置き換える
++        return {"summary": new_summary, "history_window": to_keep}
++
++    except Exception as e:
++        logger.error(f"Error in Summarizer: {e}")
++        # エラー時は何もせず（履歴は長いまま）次に進む
++        return {}
+ 
+ 
+ async def topic_tracker(state: ConversationState) -> Dict[str, Any]:
+diff --git a/app/graph/workflow.py b/app/graph/workflow.py
+index c3fa45e..699f660 100644
+--- a/app/graph/workflow.py
++++ b/app/graph/workflow.py
+@@ -14,7 +14,7 @@ from app.graph.nodes import (
+ 
+ logger = logging.getLogger(__name__)
+ 
+-HISTORY_THRESHOLD = 10
++HISTORY_THRESHOLD = 8
+ 
+ 
+ def route_signal(state: ConversationState) -> str:
+diff --git a/app/utils/prompts.py b/app/utils/prompts.py
+index 3dd88e8..e95df70 100644
+--- a/app/utils/prompts.py
++++ b/app/utils/prompts.py
+@@ -82,3 +82,31 @@ TOPIC_SHIFT_SYSTEM_PROMPT = """
+ 【出力フォーマット】
+ 指定されたJSONスキーマ（SuggestionList）に従ってください。
+ """
++
++SILENCE_HANDLER_SYSTEM_PROMPT = """
++あなたは会話のアシスタントですが、出力するのは**ユーザー自身の発話**です。
++会話が途切れて沈黙（Silence）が発生しました。
++共通の興味（Common Interests）に基づき、**{speaker} が {listener} に向かって話しかける** 自然な言葉を1つ生成してください。
++
++【ルール】
++1. **AIや司会者の人格を出さないでください**。「お二人は〜」や「話題を変えましょう」は禁止です。
++2. **自然な導入句**を使ってください。
++   - 良い例: 「そういえば、{listener}さんは〜好きでしたよね？」「ところで、最近〜には行きました？」
++   - 悪い例: 「〜についてはどうですか？」（唐突）
++3. Speaker自身の興味でもあるため、共感を求めたり、軽く質問するトーンにしてください。
++4. 出力は日本語で行ってください。
++
++【出力フォーマット】
++指定されたJSONスキーマ（SuggestionList）に従ってください。
++"""
++
++SUMMARIZER_SYSTEM_PROMPT = """
++あなたは会話の記録係です。
++これまでの「会話の要約（Current Summary）」と「新しい会話履歴（New Lines）」を統合し、より簡潔な新しい要約を作成してください。
++
++【ルール】
++1. 重要なトピック、決定事項、ユーザーの感情や好みの変化を残してください。
++2. 些末な挨拶や相槌は削除してください。
++3. "User Aは〜と言った" のような客観的な書き方をしてください。
++4. 出力は日本語で行ってください。
++"""
+diff --git a/scripts/test_optimization.py b/scripts/test_optimization.py
+new file mode 100644
+index 0000000..a11ea7c
+--- /dev/null
++++ b/scripts/test_optimization.py
+@@ -0,0 +1,209 @@
++import asyncio
++import os
++import sys
++import logging
++
++# プロジェクトルートへのパス設定
++# (実行環境に合わせて適宜調整してください)
++sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
++
++# 実際のモジュール構成に合わせてimportしてください
++# エラーが出る場合はダミー等の調整が必要です
++try:
++    from app.graph.workflow import route_signal
++    from app.graph.nodes import summarizer, silence_handler
++    from app.graph.state import get_initial_state
++except ImportError:
++    # ローカルでテスト実行するために、importできない場合のダミー定義を入れることも可能です
++    # ここではユーザー様の環境が整っている前提で進めます
++    pass
++
++# ログ設定: 内部動作が見えるように調整
++logging.basicConfig(level=logging.INFO, format="%(message)s")
++logging.getLogger("app.graph.nodes").setLevel(logging.INFO)
++logging.getLogger("httpx").setLevel(logging.WARNING)
++logging.getLogger("openai").setLevel(logging.WARNING)
++
++
++async def main():
++    print("\n==================================================")
++    print("   Optimization Logic Test")
++    print("   Target: Router, Summarizer, SilenceHandler")
++    print("==================================================\n")
++
++    state = get_initial_state()
++    user_alice = "Alice"
++    user_bob = "Bob"
++
++    # プロファイル設定（共通点：映画、旅行）
++    state["profiles"] = {
++        user_alice: {
++            "user_id": user_alice,
++            "interest_clusters": [{"keywords": ["Movie", "Action", "Travel"]}],
++            "sns_data": {"likes": ["Cinema", "Kyoto"]},
++        },
++        user_bob: {
++            "user_id": user_bob,
++            "interest_clusters": [{"keywords": ["Movie", "Popcorn", "Hot Spring"]}],
++            "sns_data": {"likes": ["Netflix", "Travel"]},
++        },
++    }
++
++    # --------------------------------------------------
++    # Case 1: Summarizer Test (履歴圧縮)
++    # --------------------------------------------------
++    print("🧪 [Test Case 1] Summarizer (Maintenance Path)")
++    print("   Condition: History length >= Threshold (8)")
++
++    # ★変更点: forループではなく、文脈のある具体的な会話データをセットします
++    # 閾値(8)を超えるように10件用意
++    dummy_history = [
++        {
++            "speaker": user_alice,
++            "text": "ねえ、最近何か面白い映画観た？",
++            "timestamp": 1000,
++        },
++        {
++            "speaker": user_bob,
++            "text": "ああ、先週公開されたアクション映画、すごく良かったよ！",
++            "timestamp": 1001,
++        },
++        {
++            "speaker": user_alice,
++            "text": "へえ、アクション好きなんだ。私もたまに観るよ。",
++            "timestamp": 1002,
++        },
++        {
++            "speaker": user_bob,
++            "text": "映画館で食べるポップコーンが最高なんだよね。",
++            "timestamp": 1003,
++        },
++        {
++            "speaker": user_alice,
++            "text": "わかる！映画館の雰囲気いいよね。そういえば旅行は？",
++            "timestamp": 1004,
++        },
++        {
++            "speaker": user_bob,
++            "text": "最近行けてないなあ。温泉とか行きたい。",
++            "timestamp": 1005,
++        },
++        {
++            "speaker": user_alice,
++            "text": "京都の温泉とかどう？これからの季節いいかも。",
++            "timestamp": 1006,
++        },
++        {
++            "speaker": user_bob,
++            "text": "いいねえ、京都。Netflixで京都が舞台の映画観て行きたくなってたんだ。",
++            "timestamp": 1007,
++        },
++        {
++            "speaker": user_alice,
++            "text": "あ、それ私も観たかも！景色綺麗だったよね。",
++            "timestamp": 1008,
++        },
++        {
++            "speaker": user_bob,
++            "text": "そうそう。やっぱり実際に現地に行きたいなあ。",
++            "timestamp": 1009,
++        },
++    ]
++
++    state["history_window"] = dummy_history
++    state["summary"] = "会話開始。"  # 初期サマリー
++    state["input_type"] = "text"  # 通常入力モード
++
++    # 1. Router Check
++    print("   [Check 1] Router Decision")
++    next_node = route_signal(state)
++    print(f"   -> Result: {next_node}")
++
++    if next_node == "summarizer":
++        print("   ✅ OK: Correctly directed to Summarizer.")
++    else:
++        print(f"   ❌ Failed: Expected 'summarizer', got '{next_node}'.")
++
++    # 2. Summarizer Execution
++    print("\n   [Check 2] Summarizer Execution")
++    # ここでSummarizerが走り、要約生成と履歴の圧縮が行われます
++    updates = await summarizer(state)
++
++    new_history = updates.get("history_window", [])
++    new_summary = updates.get("summary", "")
++
++    print(f"   Old History Len: {len(dummy_history)}")
++    print(f"   New History Len: {len(new_history)} (Expected: 2)")
++    print(f"   New Summary    : {new_summary}")
++
++    # 判定ロジック
++    if len(new_history) == 2 and len(new_summary) > 10:
++        print("   ✅ OK: History compressed and summary updated.")
++    else:
++        print("   ❌ Failed: History not compressed correctly.")
++
++    # --------------------------------------------------
++    # Case 2: Silence Handler Test (高速パス)
++    # --------------------------------------------------
++    print("\n--------------------------------------------------")
++    print("🧪 [Test Case 2] SilenceHandler (Fast Path)")
++    print("   Condition: input_type == 'silence'")
++
++    # 入力を「沈黙」に設定
++    state["input_type"] = "silence"
++
++    # 1. Router Check
++    print("   [Check 1] Router Decision")
++    next_node = route_signal(state)
++    print(f"   -> Result: {next_node}")
++
++    if next_node == "silence_handler":
++        print("   ✅ OK: Correctly directed to SilenceHandler.")
++    else:
++        print(f"   ❌ Failed: Expected 'silence_handler', got '{next_node}'.")
++
++    # 2. SilenceHandler Execution
++    print("\n   [Check 2] SilenceHandler Execution")
++
++    # 直前の履歴やプロファイルに基づいて話題を提供するかテスト
++    updates = await silence_handler(state)
++    final_sugs = updates.get("final_suggestions", [])
++
++    if final_sugs:
++        sug = final_sugs[0]
++        print(f"   Generated Text: {sug['text']}")
++        print(f"   Speaker       : {sug['speaker']} (Should be Alice or Bob)")
++        print(f"   Type          : {sug['type']}")
++
++        # 簡易評価: キーワードが含まれているか
++        text = sug["text"]
++        keywords = [
++            "映画",
++            "Movie",
++            "旅行",
++            "Travel",
++            "温泉",
++            "京都",
++            "アクション",
++            "Netflix",
++        ]
++        if any(w in text for w in keywords):
++            print("   ✅ OK: Topic generated based on common interests/context.")
++        else:
++            print("   ⚠️ Check Content manually (might be generic).")
++
++        # AIっぽさのチェック
++        if "お二人は" in text or "話題を変えましょう" in text:
++            print("   ❌ Failed: Sounding too robotic/AI-like.")
++        else:
++            print("   ✅ OK: Natural phrasing.")
++
++    else:
++        print("   ❌ Failed: No suggestions generated.")
++
++    print("\n==================================================")
++    print("   Tests Completed")
++
++
++if __name__ == "__main__":
++    asyncio.run(main())
