@@ -127,7 +127,7 @@ async def create_session(request: CreateSessionRequest):
                 id=idx + 1,
                 text=sug.get("text", ""),
                 type=sug.get("type", "topic_shift"),
-                score=sug.get("score", 0.0),
+                score=sug.get("score"),  # Noneを許容
             )
         )
 
@@ -191,6 +191,7 @@ async def websocket_topic_suggestions(
         while True:
             # クライアントからメッセージを受信
             data = await websocket.receive_json()
+            logger.info(f"Received WebSocket data: {data}")
             logger.info(f"Received message from session {session_id}: {len(data.get('conversations', []))} conversations")
 
             try:
@@ -268,16 +269,18 @@ async def websocket_topic_suggestions(
                             id=idx + 1,
                             text=sug.get("text", ""),
                             type=sug.get("type", "topic_shift"),
-                            score=sug.get("score", 0.0),
+                            score=sug.get("score"),  # Noneを許容
                         ).model_dump()
                     )
 
                 # 最終結果を送信（TranscriptUpdateResponseと同じ構造）
-                await websocket.send_json({
+                response_data = {
                     "status": "active",
                     "current_topic": current_topic,
                     "suggestions": response_suggestions,
-                })
+                }
+                logger.info(f"Sending WebSocket response: {response_data}")
+                await websocket.send_json(response_data)
 
                 logger.info(f"Sent {len(response_suggestions)} suggestions to session {session_id}")
 
