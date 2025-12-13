@@ -76,7 +76,7 @@ jobs:
                   { "key": "AGORA_APP_ID", "value": "${{ secrets.AGORA_APP_ID }}" },
                   { "key": "AGORA_APP_CERTIFICATE", "value": "${{ secrets.AGORA_APP_CERTIFICATE }}" },
                   { "key": "OPENAI_API_KEY", "value": "${{ secrets.OPENAI_API_KEY }}" },
-                  { "key": "REDIS_URL", "value": "redis://163.43.208.212:6379" },
+                  { "key": "REDIS_URL", "value": "redis://163.43.208.212:6379" }
                 ],
                 "probe": {
                   "http_get": {
