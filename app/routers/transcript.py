@@ -3,6 +3,7 @@ import websockets
 import json
 import os
 import uuid
+import base64
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional
@@ -168,13 +169,24 @@ async def forward_client_to_openai(session: TranscriptionSession):
                 if message["type"] == "websocket.disconnect":
                     break
 
-                if "text" not in message:
+                mtype = message["type"]
+                print(f"Received message.({mtype})")
+
+                audio_b64 = ""
+                if "text" in message:
+                    print("received data in text")
+                    audio_b64 = message["text"]
+                elif "bytes" in message:
+                    print("received data in bytes so convert to base64")
+                    audio_b64 = base64.b64encode(message["bytes"]).decode("utf-8")
+                else:
+                    print("Not found data...")
                     continue
 
                 # Base64エンコードされた音声データ
                 event = {
                     "type": "input_audio_buffer.append",
-                    "audio": message["text"],
+                    "audio": audio_b64,
                 }
                 await session.openai_ws.send(json.dumps(event))
 
@@ -195,6 +207,7 @@ async def forward_openai_to_client(session: TranscriptionSession):
 
             event = json.loads(message)
             event_type = event.get("type", "")
+            print(f"Recieved openai event({event_type}) -> {message}")
 
             # ログ出力とトランスクリプト保存
             if event_type == "transcription_session.created":
