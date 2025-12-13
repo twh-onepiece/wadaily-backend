@@ -75,7 +75,8 @@ jobs:
                 "env": [
                   { "key": "AGORA_APP_ID", "value": "${{ secrets.AGORA_APP_ID }}" },
                   { "key": "AGORA_APP_CERTIFICATE", "value": "${{ secrets.AGORA_APP_CERTIFICATE }}" },
-                  { "key": "OPENAI_API_KEY", "value": "${{ secrets.OPENAI_API_KEY }}" }
+                  { "key": "OPENAI_API_KEY", "value": "${{ secrets.OPENAI_API_KEY }}" },
+                  { "key": "REDIS_URL", "value": "redis://163.43.208.212:6379" },
                 ],
                 "probe": {
                   "http_get": {
@@ -92,5 +93,3 @@ jobs:
             -X PATCH \
             -d '@request_body.json' \
             https://secure.sakura.ad.jp/cloud/api/apprun/1.0/apprun/api/applications/${{ env.APPRUN_APPLICATION_ID }}
-
-
