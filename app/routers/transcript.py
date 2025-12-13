@@ -207,7 +207,6 @@ async def forward_openai_to_client(session: TranscriptionSession):
 
             event = json.loads(message)
             event_type = event.get("type", "")
-            print(f"Recieved openai event({event_type}) -> {message}")
 
             # ログ出力とトランスクリプト保存
             if event_type == "transcription_session.created":
