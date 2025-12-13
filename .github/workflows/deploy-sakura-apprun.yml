@@ -1,0 +1,97 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main, feat/ci ]
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: app
+  IMAGE_REGISTRY_HOST: wadaily.sakuracr.jp
+  IMAGE_REGISTRY_NAME: wadaily
+  IMAGE_REGISTRY_USERNAME: wadaily
+  APPRUN_APPLICATION_ID: 253151b9-60c4-47f1-b33f-7c028738cde8
+
+jobs:
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up image tag
+        id: image
+        run: |
+          IMAGE_NAME="${{ env.IMAGE_REGISTRY_HOST }}/${{ github.event.repository.name }}/${{ env.SERVICE_NAME }}"
+          IMAGE_TAG="$IMAGE_NAME:${{ github.sha }}"
+          LATEST_TAG="$IMAGE_NAME:latest"
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to image registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY_HOST }}
+          username: ${{ env.IMAGE_REGISTRY_USERNAME }}
+          password: ${{ secrets.IMAGE_REGISTRY_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.tag }}
+            ${{ steps.image.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to AppRun
+        shell: bash -xe {0}
+        run: |
+          cat <<EOF > request_body.json
+          {
+            "components": [
+              {
+                "name": "app",
+                "max_cpu": "2",
+                "max_memory": "4Gi",
+                "deploy_source": {
+                  "container_registry": {
+                    "image": "${{ steps.image.outputs.tag }}",
+                    "server": "${{ env.IMAGE_REGISTRY_HOST }}",
+                    "username": "${{ env.IMAGE_REGISTRY_USERNAME }}",
+                    "password": "${{ secrets.IMAGE_REGISTRY_PASSWORD }}"
+                  }
+                },
+                "env": [
+                  { "key": "AGORA_APP_ID", "value": "${{ secrets.AGORA_APP_ID }}" },
+                  { "key": "AGORA_APP_CERTIFICATE", "value": "${{ secrets.AGORA_APP_CERTIFICATE }}" },
+                  { "key": "OPENAI_API_KEY", "value": "${{ secrets.OPENAI_API_KEY }}" }
+                ],
+                "probe": {
+                  "http_get": {
+                    "path": "/health",
+                    "port": 8080
+                  }
+                }
+              }
+            ],
+            "all_traffic_available": true
+          }
+          EOF
+          curl -u '${{ secrets.SAKURACLOUD_ACCESS_TOKEN }}:${{ secrets.SAKURACLOUD_ACCESS_TOKEN_SECRET }}' \
+            -X PATCH \
+            -d '@request_body.json' \
+            https://secure.sakura.ad.jp/cloud/api/apprun/1.0/apprun/api/applications/${{ env.APPRUN_APPLICATION_ID }}
+
+
