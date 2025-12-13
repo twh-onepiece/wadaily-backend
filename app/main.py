@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import agora, sessions
+from app.routers import agora, sessions, transcript
 
 app = FastAPI(title="Wadaily", description="Wadaily API Service", version="0.1.0")
 
@@ -17,6 +17,7 @@ app.add_middleware(
 # ルーターの登録
 app.include_router(agora.router)
 app.include_router(sessions.router)
+app.include_router(transcript.router)
 
 
 @app.get("/")
