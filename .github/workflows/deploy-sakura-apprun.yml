@@ -1,20 +1,19 @@
-name: Deploy to Cloud Run
+name: Deploy to AppRun
 
 on:
   push:
-    branches: [ main, feat/ci ]
+    branches: [ main ]
   workflow_dispatch:
 
 env:
   SERVICE_NAME: app
   IMAGE_REGISTRY_HOST: wadaily.sakuracr.jp
-  IMAGE_REGISTRY_NAME: wadaily
   IMAGE_REGISTRY_USERNAME: wadaily
   APPRUN_APPLICATION_ID: 253151b9-60c4-47f1-b33f-7c028738cde8
 
 jobs:
   deploy:
-    name: Deploy to Cloud Run
+    name: Deploy to AppRun
     runs-on: ubuntu-latest
 
     permissions:
