@@ -43,7 +43,7 @@ async def create_session(request: CreateSessionRequest):
     # 1. Nodeに入力するための「仮のState」を作成
     # speaker/listenerを state["profiles"] (Nodeの入力形式) に変換
     initial_profiles = {}
-    
+
     # speakerの情報を追加
     speaker = request.speaker
     speaker_likes = speaker.sns_data.likes if speaker.sns_data else []
@@ -53,7 +53,7 @@ async def create_session(request: CreateSessionRequest):
         "interest_clusters": [],
         "sns_data": {"likes": speaker_likes, "posts": speaker_posts},
     }
-    
+
     # listenerの情報を追加
     listener = request.listener
     listener_likes = listener.sns_data.likes if listener.sns_data else []
@@ -80,7 +80,7 @@ async def create_session(request: CreateSessionRequest):
         raise HTTPException(status_code=500, detail="Profile analysis failed")
 
 
-    # Nodeの戻り値: 
+    # Nodeの戻り値:
     # {"profiles": {user_id: {clusters, sns_data}}, "analyzed_meta": {...}, "initial_suggestions": [...]}
     enriched_profiles = analysis_result.get("profiles", {})
     analyzed_profiles_meta = analysis_result.get("analyzed_meta", {})
@@ -190,7 +190,7 @@ async def websocket_topic_suggestions(
 
         while True:
             # クライアントからメッセージを受信
-            data = await websocket.receive_json()
+            data = await websocket.receive_json('binary')
             logger.info(f"Received WebSocket data: {data}")
             logger.info(f"Received message from session {session_id}: {len(data.get('conversations', []))} conversations")
 
@@ -202,26 +202,26 @@ async def websocket_topic_suggestions(
                 input_type = "text"
                 latest_text = ""
                 new_turns = []
-                
+
                 for conv in request.conversations:
                     new_turns.append({
                         "speaker": conv.user_id,
                         "text": conv.text,
                         "timestamp": conv.timestamp
                     })
-                
+
                 if new_turns:
                     latest_text = new_turns[-1]["text"]
 
                 # 永続化された会話履歴を取得
                 persisted_history = session_data.get("conversation_history", [])
-                
+
                 # 新しい会話を履歴に追加
                 existing_timestamps = {turn["timestamp"] for turn in persisted_history}
                 for turn in new_turns:
                     if turn["timestamp"] not in existing_timestamps:
                         persisted_history.append(turn)
-                
+
                 history_window = persisted_history[-5:] if persisted_history else []
 
                 # LangGraphを実行（既存のHTTP APIと同じ）
@@ -294,12 +294,12 @@ async def websocket_topic_suggestions(
 
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for session {session_id}")
-        
+
         # 設定により自動削除を実行
         if AUTO_DELETE_SESSION_ON_DISCONNECT:
             logger.info(f"Auto-deleting session {session_id} on disconnect")
             await SessionStore.delete_session(session_id)
-            
+
     except Exception as e:
         logger.error(f"WebSocket error for session {session_id}: {e}", exc_info=True)
         try:
@@ -311,18 +311,18 @@ async def websocket_topic_suggestions(
 @router.delete("/{session_id}", response_model=DeleteSessionResponse)
 async def delete_session(session_id: str):
     """セッションを終了し、Redisから関連データを削除する.
-    
+
     Args:
         session_id (str): 削除するセッションID.
-        
+
     Returns:
         DeleteSessionResponse: 削除結果を含むレスポンス.
-        
+
     Raises:
         HTTPException: セッションが見つからない場合は404エラー.
     """
     logger.info(f"Attempting to delete session {session_id}")
-    
+
     # セッションの存在確認
     session_data = await SessionStore.load_session(session_id)
     if not session_data:
@@ -330,10 +330,10 @@ async def delete_session(session_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found"
         )
-    
+
     # セッションを削除
     deleted = await SessionStore.delete_session(session_id)
-    
+
     if deleted:
         return DeleteSessionResponse(
             session_id=session_id,
