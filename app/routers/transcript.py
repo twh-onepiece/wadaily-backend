@@ -183,7 +183,6 @@ async def forward_client_to_openai(session: TranscriptionSession):
                     print("Not found data...")
                     continue
 
-                print("Payload: " + message["text"])
                 # Base64エンコードされた音声データ
                 event = {
                     "type": "input_audio_buffer.append",
