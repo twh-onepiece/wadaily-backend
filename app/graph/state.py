@@ -4,7 +4,8 @@ import operator
 # --- Constants ---
 # OpenAI text-embedding-3-small のデフォルト次元数
 # すべてのベクトル演算（興味クラスタ、トピック追跡）はこの次元数で統一する必要がある
-EMBEDDING_DIM = 1536
+# EMBEDDING_DIM = 1536
+EMBEDDING_DIM = 1024
 
 
 class ConversationTurn(TypedDict):
