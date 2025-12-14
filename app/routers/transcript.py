@@ -10,7 +10,8 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, APIRouter
 from app.config import OPENAI_API_KEY
 
-OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
+# OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?intent=transcription"
+OPENAI_WS_URL = "wss://ab8e4741-59fe-4017-a71e-7585fbafe804.1c41554e-3f8e-4ac9-b056-8baaf8019488.container.sakurausercontent.com"
 
 @dataclass
 class TranscriptionSession:
@@ -152,8 +153,8 @@ async def send_session_config(session: TranscriptionSession):
             }
         }
     }
-    await session.openai_ws.send(json.dumps(config))
-    print(f"[{session}] Session config sent")
+    # await session.openai_ws.send(json.dumps(config))
+    # print(f"[{session}] Session config sent")
 
 async def forward_client_to_openai(session: TranscriptionSession):
     """クライアントからの音声データをOpenAIに転送"""
