@@ -15,9 +15,9 @@ PRIVILEGE_EXPIRATION_IN_SECONDS = 3600
 # OPENAI
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
-# OPENAI_MODEL_ID= "gpt-4o-mini"
+OPENAI_MODEL_ID= "gpt-4o-mini"
 OPENAI_EMBEDDING_MODEL_ID = "text-embedding-3-small"
-OPENAI_MODEL_ID= "Qwen3-Coder-480B-A35B-Instruct-FP8"
+# OPENAI_MODEL_ID= "Qwen3-Coder-480B-A35B-Instruct-FP8"
 # OPENAI_EMBEDDING_MODEL_ID = "multilingual-e5-large"
 SAKURANOAI_API_KEY = os.getenv("SAKURANOAI_API_KEY")
 SAKURANOAI_API_BASE_URL = "https://api.ai.sakura.ad.jp/v1"
