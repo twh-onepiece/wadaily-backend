@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.config import OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
+from app.config import SAKURANOAI_API_BASE_URL, SAKURANOAI_API_KEY, OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
 from app.graph.utils import (
     safe_float,
     sanitize_text,
@@ -80,8 +80,8 @@ def get_silence_chain():
     llm = ChatOpenAI(
         model=OPENAI_MODEL_ID,
         temperature=0.5,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE_URL,
+        api_key=SAKURANOAI_API_KEY,
+        base_url=SAKURANOAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -107,8 +107,8 @@ def get_summarizer_chain():
     llm = ChatOpenAI(
         model=OPENAI_MODEL_ID,
         temperature=0.3,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE_URL,
+        api_key=SAKURANOAI_API_KEY,
+        base_url=SAKURANOAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     return llm
@@ -122,8 +122,8 @@ def get_topic_extractor_chain():
     llm = ChatOpenAI(
         model=OPENAI_MODEL_ID,
         temperature=0.0,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE_URL,
+        api_key=SAKURANOAI_API_KEY,
+        base_url=SAKURANOAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(TopicLabel)
@@ -147,8 +147,8 @@ def get_deep_dive_chain():
     llm = ChatOpenAI(
         model=OPENAI_MODEL_ID,
         temperature=0.7,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE_URL,
+        api_key=SAKURANOAI_API_KEY,
+        base_url=SAKURANOAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -170,8 +170,8 @@ def get_topic_shift_chain():
     llm = ChatOpenAI(
         model=OPENAI_MODEL_ID,
         temperature=0.8,
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_API_BASE_URL,
+        api_key=SAKURANOAI_API_KEY,
+        base_url=SAKURANOAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -259,7 +259,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 
     # === 個々人のクラスタ抽出（並列実行） ===
     embeddings_model = get_embeddings_model()
-    individual_llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.3, api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
+    individual_llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.3, api_key=SAKURANOAI_API_KEY, base_url=SAKURANOAI_API_BASE_URL)
     structured_individual_llm = individual_llm.with_structured_output(IndividualProfileAnalysis)
 
     individual_prompt = ChatPromptTemplate.from_messages([
@@ -338,7 +338,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
         ]
     )
 
-    llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.5, api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
+    llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.5, api_key=SAKURANOAI_API_KEY, base_url=SAKURANOAI_API_BASE_URL)
     structured_llm = llm.with_structured_output(UserProfileAnalysis)
     chain = prompt | structured_llm
 
