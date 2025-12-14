@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.config import SAKURANOAI_API_BASE_URL, SAKURANOAI_API_KEY, OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
+from app.config import OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
 from app.graph.utils import (
     safe_float,
     sanitize_text,
@@ -27,9 +27,6 @@ from app.utils.prompts import (
     SUMMARIZER_SYSTEM_PROMPT,
     SILENCE_HANDLER_SYSTEM_PROMPT,
 )
-
-OPENAI_API_BASE_URL = SAKURANOAI_API_BASE_URL
-OPENAI_API_KEY = SAKURANOAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
