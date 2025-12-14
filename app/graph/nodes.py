@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.config import OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
+from app.config import OPENAI_API_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL_ID, OPENAI_EMBEDDING_MODEL_ID
 from app.graph.utils import (
     safe_float,
     sanitize_text,
@@ -70,6 +70,7 @@ def get_embeddings_model() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(
         model=OPENAI_EMBEDDING_MODEL_ID,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_EMBEDDING,
     )
 
@@ -80,6 +81,7 @@ def get_silence_chain():
         model=OPENAI_MODEL_ID,
         temperature=0.5,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -106,6 +108,7 @@ def get_summarizer_chain():
         model=OPENAI_MODEL_ID,
         temperature=0.3,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     return llm
@@ -120,6 +123,7 @@ def get_topic_extractor_chain():
         model=OPENAI_MODEL_ID,
         temperature=0.0,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(TopicLabel)
@@ -144,6 +148,7 @@ def get_deep_dive_chain():
         model=OPENAI_MODEL_ID,
         temperature=0.7,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -166,6 +171,7 @@ def get_topic_shift_chain():
         model=OPENAI_MODEL_ID,
         temperature=0.8,
         api_key=OPENAI_API_KEY,
+        base_url=OPENAI_API_BASE_URL,
         timeout=TIMEOUT_LLM,
     )
     structured_llm = llm.with_structured_output(SuggestionList)
@@ -193,7 +199,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 
     profiles = state.get("profiles", {})
     user_ids = list(profiles.keys())
-    
+
     # stateからspeaker/listenerを取得
     speaker = state.get("speaker", "")
     listener = state.get("listener", "")
@@ -253,9 +259,9 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 
     # === 個々人のクラスタ抽出（並列実行） ===
     embeddings_model = get_embeddings_model()
-    individual_llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.3, api_key=OPENAI_API_KEY)
+    individual_llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.3, api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
     structured_individual_llm = individual_llm.with_structured_output(IndividualProfileAnalysis)
-    
+
     individual_prompt = ChatPromptTemplate.from_messages([
         ("system", "あなたはユーザープロファイル分析の専門家です。SNSデータからユーザーの興味関心をクラスタとして抽出してください。"),
         ("human", "以下のユーザーのSNSデータを分析し、興味関心のクラスタを抽出してください:\n\n{user_data}")
@@ -281,7 +287,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
             clusters_with_vectors = []
             for cluster in individual_result.clusters:
                 cluster_text = f"{cluster.category}: {', '.join(cluster.topics[:3])}"
-                
+
                 try:
                     cluster_vector = await asyncio.wait_for(
                         embeddings_model.aembed_query(cluster_text),
@@ -291,7 +297,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
                 except Exception as e:
                     logger.warning(f"Failed to embed cluster for {uid}: {e}")
                     vector = []
-                
+
                 clusters_with_vectors.append({
                     "category": cluster.category,
                     "topics": cluster.topics,
@@ -299,9 +305,9 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
                     "vector": vector,
                     "reasoning": cluster.reasoning
                 })
-            
+
             logger.info(f"Extracted {len(clusters_with_vectors)} clusters for user {uid}")
-            
+
             return uid, {
                 "user_id": uid,
                 "sns_data": sns,
@@ -318,7 +324,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
     # ★ 並列実行
     tasks = [process_single_user(uid, data) for uid, data in profiles.items()]
     results = await asyncio.gather(*tasks)
-    
+
     # 結果を辞書にまとめる
     enriched_profiles = {uid: profile_data for uid, profile_data in results}
 
@@ -332,7 +338,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
         ]
     )
 
-    llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.5, api_key=OPENAI_API_KEY)
+    llm = ChatOpenAI(model=OPENAI_MODEL_ID, temperature=0.5, api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE_URL)
     structured_llm = llm.with_structured_output(UserProfileAnalysis)
     chain = prompt | structured_llm
 
@@ -353,7 +359,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
         for uid, prof in enriched_profiles.items():
             for cluster in prof.get("interest_clusters", []):
                 candidate_topics.extend(cluster.get("topics", [])[:2])
-        
+
         # 全体分析からも追加
         clusters_raw = analysis_data.get("clusters", [])
         for c in clusters_raw:
@@ -476,7 +482,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
                     "score": 0.55,
                 }
             )
-        
+
         # スコア順にソートして上位3件を選択
         if len(speaker_suggestions) > 3:
             speaker_suggestions.sort(key=lambda x: x["score"], reverse=True)
@@ -525,7 +531,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
         logger.info(
             f"Profile analysis completed. Generated {len(final_suggestions)} suggestions for speaker {speaker}."
         )
-        
+
         # enriched_profilesを返す（個々人のクラスタとベクトルを含む）
         return {
             "profiles": enriched_profiles,  # 個々人のクラスタ情報
@@ -546,7 +552,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
         # エラー時もstate内のspeaker/listenerを使用
         fallback_speaker = speaker if speaker else "unknown_user"
         fallback_listener = listener if listener else "unknown_user"
-        
+
         fallback = [
             {
                 "text": "少し回線の調子が悪いようです。もう一度話しかけてみてください。",
@@ -561,31 +567,31 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 
 # async def silence_handler(state: ConversationState) -> Dict[str, Any]:
 #     """沈黙検知時に即座に介入を行うノード（Fast Path）.
-# 
+#
 #     分析処理（TopicTracker等）をスキップし、ルールベースまたは軽量LLMを用いて
 #     場をつなぐための汎用的な話題を即座に生成.
-# 
+#
 #     Args:
 #         state (ConversationState): 沈黙が検知された時点の状態.
-# 
+#
 #     Returns:
 #         Dict[str, Any]: 更新された状態の差分.
 #             - final_suggestions: 沈黙打破のための提案リスト.
 #     """
 #     logger.info("--- Node: SilenceHandler ---")
-# 
+#
 #     profiles = state.get("profiles", {})
 #     visited = state.get("visited_topics", [])
 #     user_ids = list(profiles.keys())
-# 
+#
 #     if len(user_ids) < 2:
 #         return {"final_suggestions": []}
-# 
+#
 #     # 共通興味の抽出 (簡易ロジック: キーワードの共通集合をとる)
 #     # 本来はベクトル計算などが精密だが、ここは高速性重視でキーワードマッチさせる
 #     all_keywords = []
 #     user_keywords = {}
-# 
+#
 #     for uid, prof in profiles.items():
 #         kws = set()
 #         for c in prof.get("interest_clusters", []):
@@ -594,26 +600,26 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 #         kws.update(prof.get("sns_data", {}).get("likes", []))
 #         user_keywords[uid] = kws
 #         all_keywords.extend(list(kws))
-# 
+#
 #     # 共通キーワードを探す
 #     common_interests = set()
 #     uids = list(user_keywords.keys())
 #     if len(uids) >= 2:
 #         common_interests = user_keywords[uids[0]].intersection(user_keywords[uids[1]])
-# 
+#
 #     # 共通がなければ全員の興味をプールする
 #     target_interests = list(common_interests) if common_interests else all_keywords
-# 
+#
 #     interests_str = ", ".join(target_interests[:10])
 #     visited_str = ", ".join(visited)
-# 
+#
 #     speaker = random.choice(user_ids)
 #     others = [u for u in user_ids if u != speaker]
 #     listener = others[0] if others else speaker
-# 
+#
 #     try:
 #         chain = get_silence_chain()
-# 
+#
 #         result: SuggestionList = await chain.ainvoke(
 #             {
 #                 "common_interests": interests_str,
@@ -623,7 +629,7 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 #             },
 #             config={"timeout": TIMEOUT_LLM},
 #         )
-# 
+#
 #         final_suggestions = []
 #         for item in result.suggestions:
 #             final_suggestions.append(
@@ -635,13 +641,13 @@ async def profile_analyzer(state: ConversationState) -> Dict[str, Any]:
 #                     "listener": listener,
 #                 }
 #             )
-# 
+#
 #         return {"final_suggestions": final_suggestions}
-# 
+#
 #     except Exception:
 #         error_msg = sanitize_text(traceback.format_exc())
 #         logger.error(f"Error in SilenceHandler:\n{error_msg}")
-# 
+#
 #         fallback = [
 #             {
 #                 "text": "そういえば、最近面白い映画とか観ました？",
@@ -841,11 +847,11 @@ async def generator_deep_dive(state: ConversationState) -> Dict[str, Any]:
     summary = state.get("summary", "")
     history = state.get("history_window", [])
     latest_text = state.get("latest_text", "")
-    
+
     # stateからspeaker/listenerを取得
     speaker = state.get("speaker", "")
     listener = state.get("listener", "")
-    
+
     if not speaker or not listener:
         logger.warning("Speaker or listener not set in state. Cannot generate deep dive suggestions.")
         return {"candidates": []}
@@ -908,11 +914,11 @@ async def generator_topic_shift(state: ConversationState) -> Dict[str, Any]:
 
     profiles = state.get("profiles", {})
     current_topic_vector = state.get("current_topic_vector", [])
-    
+
     # stateからspeaker/listenerを取得
     speaker = state.get("speaker", "")
     listener = state.get("listener", "")
-    
+
     if not speaker or not listener:
         logger.warning("Speaker or listener not set in state. Cannot generate topic shift suggestions.")
         return {"candidates": []}
